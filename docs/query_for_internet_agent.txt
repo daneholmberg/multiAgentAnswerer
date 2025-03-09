@@ -1,0 +1,29 @@
+I'm implementing a multi-agent AI collaboration system using CrewAI to orchestrate multiple state-of-the-art LLMs. Please provide comprehensive information on the following topics:
+
+1. **Accurate Model Names and Parameters**:
+   - What is the correct model name for DeepSeek R1 in the DeepSeek API? What are the optimal parameters (temperature, max_tokens) for analytical tasks?
+   - What is the correct model name for OpenAI O3 Mini High? Is this "gpt-3.5-turbo" or another model? What are the recommended parameters?
+   - What is the correct model name for OpenAI O1? Is this "gpt-4o" or another model? What are the optimal parameters?
+   - What is the correct model name for Claude 3.7 Thinking in the Anthropic API? Is "claude-3-7-sonnet-20240229" correct? What about optimal parameters?
+   - What is the correct model name for Claude 3.6 (or Claude 3.5 new) in the Anthropic API? Is "claude-3-opus-20240229" correct? What about optimal parameters?
+
+2. **API Integration with CrewAI**:
+   - How do I properly integrate the DeepSeek API with CrewAI? Does CrewAI directly support DeepSeek or do I need additional code?
+   - How do I properly integrate Anthropic's Claude models with CrewAI? Are there any special considerations?
+   - For OpenAI's latest models (O1, O3), are there specific CrewAI integration details I should know?
+   - What is the latest stable version of CrewAI and are there any breaking changes I should be aware of?
+
+3. **Robust JSON Parsing**:
+   - What are the best practices for parsing JSON responses from LLMs, especially for structured data like evaluations?
+   - What error handling mechanisms should I implement to ensure robustness when LLMs don't follow the expected JSON format?
+
+4. **API Usage and Rate Limiting**:
+   - What are the rate limits for each of these APIs (DeepSeek, OpenAI, Anthropic)?
+   - How should I implement proper error handling for API rate limits and other common API errors?
+   - Are there cost-effective strategies for using these models in a multi-agent system?
+
+5. **Asynchronous Processing**:
+   - What's the best way to implement asynchronous processing with CrewAI for multiple models?
+   - How can I optimize the performance of parallel API calls to different model providers?
+
+Please provide detailed, accurate, and up-to-date information on these topics, including code examples where relevant. This information will help me complete the implementation of my multi-agent AI collaboration tool. 

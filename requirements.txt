@@ -1,0 +1,5 @@
+crewai>=0.28.1
+python-dotenv>=1.0.0
+rich>=13.5.0
+pydantic>=2.4.0
+asyncio>=3.4.3 
