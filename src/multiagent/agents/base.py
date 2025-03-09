@@ -61,7 +61,7 @@ def create_answering_agent(
         goal=f"Provide the best possible answer to the user's question as {role}.",
         llm=llm,
         verbose=True,
-        allow_delegation=True,
+        allow_delegation=False,
         tools=[],
     )
 
@@ -79,7 +79,7 @@ def create_evaluator_agent(
         goal="Objectively evaluate answers based on relevant criteria.",
         llm=llm,
         verbose=True,
-        allow_delegation=True,
+        allow_delegation=False,
         tools=[],
     )
 
@@ -97,7 +97,7 @@ def create_improver_agent(
         goal="Improve the given answer based on evaluation feedback.",
         llm=llm,
         verbose=True,
-        allow_delegation=True,
+        allow_delegation=False,
         tools=[],
     )
 

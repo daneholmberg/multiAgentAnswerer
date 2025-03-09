@@ -3,7 +3,13 @@ import os
 import logging
 from typing import Dict, List, Tuple, Any
 
-from models import Answer, Evaluation, EvaluationCriterion, AnswerScore, ImprovedAnswer
+from multiagent.models.base import (
+    Answer,
+    Evaluation,
+    EvaluationCriterion,
+    AnswerScore,
+    ImprovedAnswer,
+)
 
 # Set up logging
 log_level = os.getenv("LOG_LEVEL", "INFO")
@@ -62,11 +68,13 @@ def parse_evaluation_result(evaluation_text: str, question: str, evaluator_id: s
 
     Returns:
         Structured Evaluation object
+
+    Raises:
+        json.JSONDecodeError: If the evaluation text cannot be parsed as JSON
+        ValueError: If the parsed JSON does not have the expected structure
     """
-    # This is a simplified version - in a real implementation,
-    # you might need more robust parsing
+    # Try parsing as JSON first
     try:
-        # Try parsing as JSON first
         if "```json" in evaluation_text:
             json_start = evaluation_text.find("```json") + 7
             json_end = evaluation_text.find("```", json_start)
@@ -97,12 +105,14 @@ def parse_evaluation_result(evaluation_text: str, question: str, evaluator_id: s
         return Evaluation(
             criteria=criteria, scores=scores, evaluator_id=evaluator_id, question=question
         )
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing evaluation result: {e}")
+        logger.debug(f"Raw evaluation text: {evaluation_text}")
+        raise  # Re-raise the JSON decode error
     except Exception as e:
         logger.error(f"Error parsing evaluation result: {e}")
         logger.debug(f"Raw evaluation text: {evaluation_text}")
-
-        # Fallback - return an empty evaluation
-        return Evaluation(criteria=[], scores=[], evaluator_id=evaluator_id, question=question)
+        raise ValueError(f"Invalid evaluation format: {e}") from e
 
 
 def parse_improvement_result(

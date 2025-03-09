@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.main import process_question
+from src.multiagent.config.model_selection import get_model_selection
 
 
 async def main():
@@ -18,10 +19,21 @@ async def main():
     question = "What are the ethical implications of using AI in healthcare?"
 
     print(f"Processing question: {question}")
-    result = await process_question(question)
 
-    print("\nFinal Answer:")
-    print(result)
+    # Example 1: Interactive model selection
+    print("\nExample 1: Interactive model selection")
+    selected_models = get_model_selection(use_all_models=False)
+    result1 = await process_question(question, selected_models)
+
+    print("\nFinal Answer (Interactive selection):")
+    print(result1)
+
+    # Example 2: Use all models
+    print("\nExample 2: Using all models")
+    result2 = await process_question(question, get_model_selection(use_all_models=True))
+
+    print("\nFinal Answer (All models):")
+    print(result2)
 
 
 if __name__ == "__main__":

@@ -1,1 +1,7 @@
 .env
+__pycache__
+
+.pytest_cache
+
+docs/runs/**
+old_AGENTS_DO_NOT_USE/**

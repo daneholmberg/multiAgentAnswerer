@@ -1,7 +1,7 @@
 from typing import Dict, List, Any, Optional
 from uuid import uuid4
 from crewai import Task, Agent
-from models import Answer, ImprovedAnswer
+from multiagent.models.base import Answer, ImprovedAnswer
 
 
 def create_answer_task(question: str, agent: Agent, async_execution: bool = False) -> Task:

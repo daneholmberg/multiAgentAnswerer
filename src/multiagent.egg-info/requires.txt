@@ -1,0 +1,9 @@
+crewai
+pydantic
+python-dotenv
+rich
+
+[test]
+pytest
+pytest-asyncio
+pytest-cov

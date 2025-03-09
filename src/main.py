@@ -4,7 +4,7 @@ import json
 import asyncio
 import argparse
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Set, Tuple
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
@@ -13,23 +13,29 @@ from rich import print as rprint
 from rich.logging import RichHandler
 from rich.theme import Theme
 from rich.style import Style
-from crewai import Crew
+from crewai import Crew, Agent
 
-from multiagent.agents.base import get_answering_agents, get_evaluator_agents, get_improver_agents
-from multiagent.tasks.base import (
+from src.multiagent.agents.base import (
+    get_answering_agents,
+    get_evaluator_agents,
+    get_improver_agents,
+)
+from src.multiagent.tasks.base import (
     create_answer_task,
     create_evaluation_task,
     create_improvement_task,
     create_final_judgment_task,
 )
-from multiagent.models.base import Answer, Evaluation, ImprovedAnswer
-from multiagent.utils.base import (
+from src.multiagent.models.base import Answer, Evaluation, ImprovedAnswer
+from src.multiagent.utils.base import (
     anonymize_answers,
     deanonymize_answers,
     parse_evaluation_result,
     parse_improvement_result,
     combine_evaluations,
 )
+from src.multiagent.config.model_selection import get_model_selection, filter_agents
+from src.multiagent.utils.run_logger import RunLogger
 
 # Load environment variables
 load_dotenv()
@@ -103,75 +109,93 @@ def log_progress(message: str) -> None:
     logger.info(formatted)
 
 
-async def get_initial_answers(question: str) -> Dict[str, Answer]:
+async def get_initial_answers(
+    question: str, selected_models: Set[str] = None
+) -> Tuple[Dict[str, Answer], RunLogger]:
     """
-    Get initial answers from all agents.
+    Get initial answers from selected agents using a single crew with delegated tasks.
 
     Args:
         question: The question to answer
+        selected_models: Set of model IDs to use (if None, use all models)
 
     Returns:
-        Dictionary mapping agent IDs to their Answer objects
+        Dictionary mapping agent IDs to their Answer objects and RunLogger
     """
-    log_step_start("Getting initial answers from all agents")
+    log_step_start("Getting initial answers from selected agents")
     log_progress(f"Processing question: {question}")
+
+    # Initialize the run logger asynchronously
+    run_logger = await RunLogger.create(question)
 
     console.print(Panel(f"[bold cyan]Question:[/bold cyan] {question}", title="Initial Question"))
 
     try:
         # Get all answering agents
         agents = get_answering_agents()
-        log_progress(f"Initialized {len(agents)} answering agents")
+
+        # Filter agents based on selected models
+        if selected_models:
+            agents = filter_agents(agents, selected_models)
+
+        log_progress(f"Using {len(agents)} answering agents")
 
         # Create answer tasks
         answers = {}
-
-        # Create a Crew for answering
         agents_list = list(agents.values())
-        tasks = []
-        for i, agent in enumerate(agents_list):
-            logger.debug(
-                format_log_message(f"Creating answer task for agent: {agent.role}", "debug")
-            )
-            tasks.append(
-                create_answer_task(question, agent, async_execution=(i == len(agents_list) - 1))
-            )
 
+        # Create tasks for all agents except the last one
+        tasks = []
+        for agent in agents_list[:-1]:
+            task = create_answer_task(question, agent, async_execution=False)
+            tasks.append(task)
+
+        # Make the last task async to handle coordination
+        if agents_list:
+            last_task = create_answer_task(question, agents_list[-1], async_execution=True)
+            tasks.append(last_task)
+
+        # Create a single crew with all agents and tasks
         crew = Crew(
             agents=agents_list,
             tasks=tasks,
             verbose=1,
         )
-        log_progress("Created answer crew with tasks")
 
-        # Execute tasks
+        # Execute all tasks
         log_progress("Executing answer tasks...")
-        crew_output = crew.kickoff()
+        results = await crew.kickoff()
 
-        # Handle CrewOutput - it might be a single result or a list
-        if isinstance(crew_output, (list, tuple)):
-            results = crew_output
-        else:
-            # If it's a single CrewOutput, wrap it in a list
-            results = [crew_output]
+        # Handle results - ensure we get a list even if there's only one result
+        if not isinstance(results, (list, tuple)):
+            results = [results]
 
         log_progress(f"Received {len(results)} answers")
 
         # Process results
         for i, (agent_id, agent) in enumerate(agents.items()):
             try:
-                answer_content = str(results[i]) if i < len(results) else "No response received."
-                answers[agent_id] = Answer(content=answer_content, agent_id=agent_id)
-                log_agent_action(agent.role, "provided an answer")
-                console.print(f"[bold green]{agent.role}[/bold green] has provided an answer.")
+                if i < len(results):
+                    answer_content = str(results[i])
+                    answers[agent_id] = Answer(content=answer_content, agent_id=agent_id)
+                    log_agent_action(agent.role, "provided an answer")
+                    console.print(f"[bold green]{agent.role}[/bold green] has provided an answer.")
+
+                    # Log the answer
+                    run_logger.log_initial_answer(agent, answer_content)
+                else:
+                    logger.warning(f"No result received for agent {agent_id}")
+                    answers[agent_id] = Answer(content="No response received", agent_id=agent_id)
             except Exception as e:
                 logger.error(
                     format_log_message(f"Error processing answer from {agent.role}: {e}", "error")
                 )
-                answers[agent_id] = Answer(content="Error processing answer", agent_id=agent_id)
+                answers[agent_id] = Answer(
+                    content=f"Error processing answer: {str(e)}", agent_id=agent_id
+                )
 
         log_step_complete("Getting initial answers")
-        return answers
+        return answers, run_logger
 
     except Exception as e:
         error_msg = f"Error getting initial answers: {str(e)}"
@@ -179,13 +203,16 @@ async def get_initial_answers(question: str) -> Dict[str, Answer]:
         raise RuntimeError(error_msg) from e
 
 
-async def evaluate_answers(question: str, answers: Dict[str, Answer]) -> List[Evaluation]:
+async def evaluate_answers(
+    question: str, answers: Dict[str, Answer], run_logger: RunLogger
+) -> List[Evaluation]:
     """
-    Have agents evaluate all answers.
+    Have agents evaluate all answers using a single crew with delegated tasks.
 
     Args:
         question: The original question
         answers: Dictionary mapping agent IDs to their Answer objects
+        run_logger: RunLogger instance
 
     Returns:
         List of Evaluation objects from each evaluator
@@ -208,57 +235,91 @@ async def evaluate_answers(question: str, answers: Dict[str, Answer]) -> List[Ev
         evaluator_agents = get_evaluator_agents()
         log_progress(f"Initialized {len(evaluator_agents)} evaluator agents")
 
-        # Create evaluation tasks
-        evaluations = []
-
-        # Create a Crew for evaluation
+        # Create tasks for all evaluators
         evaluator_list = list(evaluator_agents.values())
         tasks = []
-        for i, agent in enumerate(evaluator_list):
-            logger.debug(
-                format_log_message(f"Creating evaluation task for agent: {agent.role}", "debug")
-            )
-            tasks.append(
-                create_evaluation_task(
-                    question,
-                    anonymized_answers,
-                    agent,
-                    async_execution=(i == len(evaluator_list) - 1),
-                )
-            )
 
+        # Create tasks for all evaluators except the last one
+        for agent in evaluator_list[:-1]:
+            task = create_evaluation_task(
+                question,
+                anonymized_answers,
+                agent,
+                async_execution=False,
+            )
+            tasks.append(task)
+
+        # Make the last task async to handle coordination
+        if evaluator_list:
+            last_task = create_evaluation_task(
+                question,
+                anonymized_answers,
+                evaluator_list[-1],
+                async_execution=True,
+            )
+            tasks.append(last_task)
+
+        # Create a single crew with all evaluators and tasks
         crew = Crew(
             agents=evaluator_list,
             tasks=tasks,
             verbose=1,
         )
-        log_progress("Created evaluation crew with tasks")
 
-        # Execute tasks
+        # Execute all tasks
         log_progress("Executing evaluation tasks...")
-        crew_output = crew.kickoff()
+        results = await crew.kickoff()
 
-        # Handle CrewOutput
-        if isinstance(crew_output, (list, tuple)):
-            results = crew_output
-        else:
-            results = [crew_output]
+        # Handle results - ensure we get a list even if there's only one result
+        if not isinstance(results, (list, tuple)):
+            results = [results]
 
         log_progress(f"Received {len(results)} evaluations")
 
         # Process results
+        evaluations = []
         for i, (evaluator_id, agent) in enumerate(evaluator_agents.items()):
             try:
-                evaluation_text = str(results[i]) if i < len(results) else "{}"
-                evaluation = parse_evaluation_result(evaluation_text, question, evaluator_id)
-                evaluations.append(evaluation)
-                log_agent_action(agent.role, "evaluated the answers")
-                console.print(f"[bold green]{agent.role}[/bold green] has evaluated the answers.")
-            except Exception as e:
+                if i < len(results):
+                    evaluation_text = str(results[i])
+                    evaluation = parse_evaluation_result(evaluation_text, question, evaluator_id)
+                    evaluations.append(evaluation)
+                    log_agent_action(agent.role, "evaluated the answers")
+                    console.print(
+                        f"[bold green]{agent.role}[/bold green] has evaluated the answers."
+                    )
+
+                    # Log the evaluation
+                    evaluation_data = json.loads(evaluation_text)
+                    run_logger.log_evaluation(agent, evaluation_data)
+                else:
+                    logger.warning(f"No evaluation result received from {evaluator_id}")
+            except json.JSONDecodeError as e:
                 logger.error(
                     format_log_message(f"Error parsing evaluation from {agent.role}: {e}", "error")
                 )
-                logger.debug(format_log_message(f"Raw evaluation text: {evaluation_text}", "debug"))
+                logger.debug(
+                    format_log_message(
+                        f"Raw evaluation text: {evaluation_text if 'evaluation_text' in locals() else 'N/A'}",
+                        "debug",
+                    )
+                )
+                # Skip creating an evaluation object for invalid JSON
+                continue
+            except Exception as e:
+                logger.error(
+                    format_log_message(
+                        f"Error processing evaluation from {agent.role}: {e}", "error"
+                    )
+                )
+                logger.debug(
+                    format_log_message(
+                        f"Raw evaluation text: {evaluation_text if 'evaluation_text' in locals() else 'N/A'}",
+                        "debug",
+                    )
+                )
+                # Skip creating an evaluation object for other errors
+                continue
 
         log_step_complete("Evaluating answers")
         return evaluations
@@ -327,6 +388,7 @@ async def improve_answers(
     best_agent_ids: List[str],
     answers: Dict[str, Answer],
     evaluations: List[Evaluation],
+    run_logger: RunLogger,
 ) -> Dict[str, ImprovedAnswer]:
     """
     Improve the best answers based on evaluation feedback.
@@ -336,6 +398,7 @@ async def improve_answers(
         best_agent_ids: List of agent IDs for the best answers
         answers: Dictionary mapping agent IDs to their Answer objects
         evaluations: List of Evaluation objects
+        run_logger: RunLogger instance
 
     Returns:
         Dictionary mapping agent IDs to their ImprovedAnswer objects
@@ -410,40 +473,56 @@ async def improve_answers(
         # Execute tasks
         console.print(f"Improving answer from [bold green]{best_agent_id}[/bold green]...")
         logger.info(f"Executing improvement tasks for {best_agent_id}...")
-        results = crew.kickoff()
-        logger.info(f"Received {len(results)} improvements")
+        results = await crew.kickoff()
+        logger.info("Received improvement results")
+
+        # Process results - handle both single result and list of results
+        if not isinstance(results, (list, tuple)):
+            results = [results]
 
         # Process results
         for i, (improver_id, agent) in enumerate(improver_agents.items()):
-            improvement_text = results[i] if i < len(results) else "{}"
             try:
-                improved_answer = parse_improvement_result(
-                    improvement_text, best_agent_id, improver_id
-                )
-                key = f"{best_agent_id}_{improver_id}"
-                improved_answers[key] = improved_answer
-                logger.info(f"Processed improvement from {agent.role}")
-                console.print(
-                    f"[bold green]{agent.role}[/bold green] has improved the answer from [bold blue]{best_agent_id}[/bold blue]."
-                )
+                if i < len(results):
+                    improvement_text = str(results[i])
+                    improved_answer = parse_improvement_result(
+                        improvement_text, best_agent_id, improver_id
+                    )
+                    key = f"{best_agent_id}_{improver_id}"
+                    improved_answers[key] = improved_answer
+                    logger.info(f"Processed improvement from {agent.role}")
+                    console.print(
+                        f"[bold green]{agent.role}[/bold green] has improved the answer from [bold blue]{best_agent_id}[/bold blue]."
+                    )
+
+                    # Log the improvement
+                    improved_answer_data = json.loads(improvement_text)
+                    run_logger.log_improvement(agent, best_agent_id, improved_answer_data)
+                else:
+                    logger.warning(f"No improvement result received from {improver_id}")
             except Exception as e:
                 logger.error(f"Error parsing improvement from {agent.role}: {e}")
-                logger.debug(f"Raw improvement text: {improvement_text}")
+                logger.debug(
+                    f"Raw improvement text: {str(results[i]) if i < len(results) else 'N/A'}"
+                )
 
     log_step_complete("Improving answers")
     return improved_answers
 
 
-async def final_judgment(question: str, improved_answers: Dict[str, ImprovedAnswer]) -> str:
+async def final_judgment(
+    question: str, improved_answers: Dict[str, ImprovedAnswer], run_logger: RunLogger
+) -> Tuple[str, float]:
     """
     Make a final judgment on the improved answers.
 
     Args:
         question: The original question
         improved_answers: Dictionary mapping keys to ImprovedAnswer objects
+        run_logger: RunLogger instance
 
     Returns:
-        The content of the best answer
+        The content of the best answer and its final score
     """
     log_step_start("Making final judgment")
     logger.info(f"Making final judgment on {len(improved_answers)} improved answers")
@@ -486,10 +565,10 @@ async def final_judgment(question: str, improved_answers: Dict[str, ImprovedAnsw
 
     # Execute task
     logger.info("Executing final judgment task...")
-    results = crew.kickoff()
+    results = await crew.kickoff()
 
     # Parse result
-    judgment_text = results[0] if results else "{}"
+    judgment_text = str(results[0]) if results else "{}"
     logger.debug(f"Raw judgment text: {judgment_text}")
 
     try:
@@ -522,8 +601,12 @@ async def final_judgment(question: str, improved_answers: Dict[str, ImprovedAnsw
 
         console.print(Panel(str(best_answer), title="[bold green]Selected Answer[/bold green]"))
 
+        # Log final judgment
+        judgment_data = json.loads(judgment_text)
+        run_logger.log_final_judgment(judge_agent, judgment_data)
+
         log_step_complete("Making final judgment")
-        return str(best_answer)
+        return str(best_answer), final_score
 
     except Exception as e:
         logger.error(f"Error parsing judgment result: {e}")
@@ -533,38 +616,44 @@ async def final_judgment(question: str, improved_answers: Dict[str, ImprovedAnsw
         console.print(
             "[bold red]Error in final judgment. Returning first improved answer.[/bold red]"
         )
-        return str(list(improved_answers.values())[0])
+        return str(list(improved_answers.values())[0]), 0
 
 
-async def process_question(question: str) -> str:
+async def process_question(question: str, selected_models: Set[str] = None) -> Tuple[str, float]:
     """
     Process a question through the multi-agent workflow.
 
     Args:
         question: The question to process
+        selected_models: Set of model IDs to use (if None, use all models)
 
     Returns:
-        The final best answer
+        The final best answer and its final score
     """
     logger.info(f"Starting to process question: {question}")
     try:
         # Step 1: Get initial answers
-        answers = await get_initial_answers(question)
+        answers, run_logger = await get_initial_answers(question, selected_models)
 
         # Step 2: Evaluate answers
-        evaluations = await evaluate_answers(question, answers)
+        evaluations = await evaluate_answers(question, answers, run_logger)
 
         # Step 3: Select best answers
         best_agent_ids = select_best_answers(evaluations, answers)
 
         # Step 4: Improve answers
-        improved_answers = await improve_answers(question, best_agent_ids, answers, evaluations)
+        improved_answers = await improve_answers(
+            question, best_agent_ids, answers, evaluations, run_logger
+        )
 
         # Step 5: Final judgment
-        final_answer = await final_judgment(question, improved_answers)
+        best_answer, final_score = await final_judgment(question, improved_answers, run_logger)
+
+        # Log final summary
+        run_logger.log_summary(best_answer)
 
         logger.info("Question processing completed successfully")
-        return final_answer
+        return best_answer, final_score
 
     except Exception as e:
         logger.error(f"Error processing question: {e}")
@@ -575,6 +664,9 @@ def main():
     """Main function to run the script."""
     parser = argparse.ArgumentParser(description="Multi-Agent AI Collaboration Tool")
     parser.add_argument("question", nargs="?", default=None, help="The question to process")
+    parser.add_argument(
+        "--all-models", action="store_true", help="Use all available models without prompting"
+    )
     args = parser.parse_args()
 
     if args.question:
@@ -590,13 +682,16 @@ def main():
         )
         question = console.input("[bold yellow]Please enter your question:[/bold yellow] ")
 
+    # Get model selection
+    selected_models = get_model_selection(use_all_models=args.all_models)
+
     # Process the question
     loop = asyncio.get_event_loop()
-    final_answer = loop.run_until_complete(process_question(question))
+    final_answer, final_score = loop.run_until_complete(process_question(question, selected_models))
 
     # Save result to file
     with open("last_answer.txt", "w") as f:
-        f.write(final_answer)
+        f.write(f"{final_answer}\n{final_score}")
 
     console.print("\n[bold green]Final answer saved to last_answer.txt[/bold green]")
 

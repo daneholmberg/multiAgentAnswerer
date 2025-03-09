@@ -23,7 +23,19 @@ setup(
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.8",
-    install_requires=requirements,
+    install_requires=[
+        "crewai",
+        "rich",
+        "python-dotenv",
+        "pydantic",
+    ],
+    extras_require={
+        "test": [
+            "pytest",
+            "pytest-asyncio",
+            "pytest-cov",
+        ],
+    },
     entry_points={
         "console_scripts": [
             "multiagent=main:main",

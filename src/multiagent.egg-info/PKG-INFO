@@ -1,3 +1,19 @@
+Metadata-Version: 2.1
+Name: multiagent
+Version: 0.1.0
+Summary: Multi-Agent AI Collaboration Tool
+Home-page: UNKNOWN
+Author: 
+Author-email: 
+License: UNKNOWN
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Provides-Extra: test
+
 # Multi-Agent AI Collaboration Tool
 
 This project implements a collaborative AI system using CrewAI to orchestrate multiple state-of-the-art language models. The system enables models to independently answer questions, anonymously evaluate each other's responses, and iteratively improve answers based on structured feedback.
@@ -74,3 +90,4 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install in development mode
 pip install -e .
 ``` 
+
