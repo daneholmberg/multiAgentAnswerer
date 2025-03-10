@@ -1,6 +1,9 @@
 import threading
 import concurrent.futures
 import traceback
+import sys
+import io
+import contextlib
 from typing import List, Dict, Any, TypeVar, Generic, Callable
 from crewai import Agent, Task
 import logging
@@ -25,6 +28,38 @@ class TaskExecutionError(Exception):
         )
 
 
+@contextlib.contextmanager
+def redirect_stdout_stderr():
+    """Context manager to redirect stdout and stderr to StringIO."""
+    # Create StringIO objects to capture output
+    stdout_capture = io.StringIO()
+    stderr_capture = io.StringIO()
+
+    # Save original stdout/stderr
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+
+    try:
+        # Redirect stdout/stderr to our capture objects
+        sys.stdout = stdout_capture
+        sys.stderr = stderr_capture
+        yield
+    finally:
+        # Restore original stdout/stderr
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+
+        # Get the captured output (for debugging if needed)
+        stdout_value = stdout_capture.getvalue()
+        stderr_value = stderr_capture.getvalue()
+
+        # Log the captured output at debug level for troubleshooting
+        if stdout_value.strip():
+            logger.debug(f"Captured stdout: {stdout_value}")
+        if stderr_value.strip():
+            logger.debug(f"Captured stderr: {stderr_value}")
+
+
 class ThreadedTaskExecutor:
     """
     Utility class for executing tasks in a multithreaded manner.
@@ -47,7 +82,10 @@ class ThreadedTaskExecutor:
             TaskExecutionError: If task execution fails
         """
         try:
-            result = agent.execute_task(task)
+            # Use context manager to redirect stdout/stderr during task execution
+            with redirect_stdout_stderr():
+                result = agent.execute_task(task)
+
             if result is None:
                 raise TaskExecutionError("Task returned None result", agent_role=agent.role)
             return result

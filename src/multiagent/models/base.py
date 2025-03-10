@@ -26,15 +26,26 @@ class AnswerScore(BaseModel):
     answer_id: str
     criteria_scores: Dict[str, float]  # criterion_name -> score
     total_score: float
-    reasoning: Dict[str, str] | str  # Allow either structured feedback or plain string
+    reasoning: Dict[
+        str, str
+    ]  # Must contain 'strengths', 'weaknesses', and 'improvement_suggestions'
 
     @property
     def formatted_reasoning(self) -> str:
         """Format the reasoning into a readable string."""
         if isinstance(self.reasoning, dict):
             # Convert structured feedback into readable format
-            return "\n".join(f"{k}: {v}" for k, v in self.reasoning.items())
-        return self.reasoning
+            formatted_parts = []
+            if "strengths" in self.reasoning:
+                formatted_parts.append(f"Strengths: {self.reasoning['strengths']}")
+            if "weaknesses" in self.reasoning:
+                formatted_parts.append(f"Weaknesses: {self.reasoning['weaknesses']}")
+            if "improvement_suggestions" in self.reasoning:
+                formatted_parts.append(
+                    f"Improvement Suggestions: {self.reasoning['improvement_suggestions']}"
+                )
+            return "\n".join(formatted_parts)
+        return str(self.reasoning)
 
     def __str__(self) -> str:
         return self.formatted_reasoning

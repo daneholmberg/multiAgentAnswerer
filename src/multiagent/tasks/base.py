@@ -26,10 +26,14 @@ def create_answer_task(question: str, agent: Agent, async_execution: bool = Fals
     2. Consider multiple perspectives if relevant.
     3. Structure your answer clearly.
     4. Use examples or analogies if they help clarify concepts.
-    5. Cite sources or reference relevant authorities when appropriate.
-    6. Be honest about uncertainty rather than making claims you cannot support.
+    5. Be honest about uncertainty rather than making claims you cannot support.
     
     Your response will be anonymized and evaluated by other AI agents, so focus on quality rather than personal style.
+    
+    You can use whatever reasoning tokens you want, but the final answer should be at the end of the response like so:
+    FINAL_ANSWER: <your answer here>
+    
+    THERE SHOULD BE NOTHING ELSE AFTER THE FINAL ANSWER.
     """
 
     return Task(
@@ -73,13 +77,15 @@ def create_evaluation_task(
     
     Follow these steps:
     
-    1. Define 3-5 evaluation criteria relevant to this specific question. Examples might include: 
+    1. Define 3-5 evaluation criteria relevant to this specific question. Examples MIGHT include: 
        - Accuracy/Correctness
        - Comprehensiveness
        - Clarity/Communication
        - Use of evidence/examples
        - Practical applicability
        - Logical reasoning
+       
+       But remember that you are the one who is defining the criteria, so you can define whatever criteria fits the question and the answers.
        
     2. Assign each criterion a weight (0.0-1.0) based on its importance to this question, with weights summing to 1.0.
     
@@ -89,7 +95,10 @@ def create_evaluation_task(
     
     5. Provide specific feedback on each answer's strengths and weaknesses.
     
-    Format your response as a JSON object with the following structure:
+    You can use reasoning before you build the json object, but the json object HAS TO BE AT THE END OF YOUR RESPONSE.
+    YOU SHOULD NOT HAVE ANYTHING BUT VALID JSON AFTER YOU START BUILDING THE JSON OBJECT.
+    
+    json structure:
     ```json
     {{
       "criteria": [
@@ -99,24 +108,20 @@ def create_evaluation_task(
       ],
       "scores": [
         {{
-          "answer_id": "Answer X",
-          "criteria_scores": {{ "criterion1": 8, "criterion2": 7 }},
           "reasoning": {{
             "strengths": "Clear explanation of key concepts...",
             "weaknesses": "Could provide more examples...",
             "improvement_suggestions": "Consider adding..."
-          }}
-          // OR use a single string for simpler feedback:
-          // "reasoning": "Strong explanation but needs more examples..."
+          }},
+          "answer_id": "Answer X",
+          "criteria_scores": {{ "criterion1": 8, "criterion2": 7 }}
         }},
-        // ... scores for other answers
+        // ... scores for other answers IN THE EXACT SAME FORMAT
       ]
     }}
     ```
     
-    You can provide reasoning either as:
-    1. A structured object with "strengths", "weaknesses", and "improvement_suggestions"
-    2. A single string with overall feedback
+    REASONING HAS TO GO BEFORE ANY EVALUATION SCORES.
     
     Be objective and fair in your evaluation, using the same standards across all answers.
     """
