@@ -4,3 +4,4 @@ rich>=13.5.0
 pydantic>=2.4.0
 asyncio>=3.4.3 
 keyboard>=0.13.5
+aiofiles>=24.1.0

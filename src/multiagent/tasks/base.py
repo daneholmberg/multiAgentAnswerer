@@ -87,7 +87,7 @@ def create_evaluation_task(
     
     4. Calculate a weighted total score for each answer.
     
-    5. Provide short, specific feedback on each answer's strengths and weaknesses.
+    5. Provide specific feedback on each answer's strengths and weaknesses.
     
     Format your response as a JSON object with the following structure:
     ```json
@@ -101,12 +101,22 @@ def create_evaluation_task(
         {{
           "answer_id": "Answer X",
           "criteria_scores": {{ "criterion1": 8, "criterion2": 7 }},
-          "reasoning": "Explanation of reasoning"
+          "reasoning": {{
+            "strengths": "Clear explanation of key concepts...",
+            "weaknesses": "Could provide more examples...",
+            "improvement_suggestions": "Consider adding..."
+          }}
+          // OR use a single string for simpler feedback:
+          // "reasoning": "Strong explanation but needs more examples..."
         }},
         // ... scores for other answers
       ]
     }}
     ```
+    
+    You can provide reasoning either as:
+    1. A structured object with "strengths", "weaknesses", and "improvement_suggestions"
+    2. A single string with overall feedback
     
     Be objective and fair in your evaluation, using the same standards across all answers.
     """
@@ -200,38 +210,27 @@ def create_final_judgment_task(
     )
 
     task_description = f"""
-    Your task is to make a final judgment on the following improved answers to this question:
+    Your task is to analyze the improved answers and provide a final answer that can either be exactly the same as one of the improved answers or a combination of the improved answers.
     
     Question: "{question}"
     
     Improved Answers:
     {answers_text}
     
-    Follow these steps:
+    Please provide:
+    1. A thorough analysis of each answer's strengths and weaknesses
+    2. The final answer that you believe is the best solution to the question
+    3. A confidence score (0-10) indicating how strong you believe the final solution is
     
-    1. Use the same or similar evaluation criteria as in the previous evaluation.
+    Focus on providing valuable insights that will help users understand the best way to solve their problem.
+    You may combine ideas from multiple answers if that produces the best solution.
     
-    2. Evaluate each answer thoroughly against these criteria.
-    
-    3. Select the single best answer that most effectively addresses the question.
-    
-    4. Explain your reasoning for this selection, highlighting what makes it superior.
-    
-    Format your response as a JSON object with the following structure:
-    ```json
-    {{
-      "best_answer_id": "Answer X",
-      "reasoning": "Detailed explanation of why this is the best answer",
-      "final_score": 9.5
-    }}
-    ```
-    
-    Be objective and fair in your final judgment.
+    Be thorough in your explanation but also clear and practical in your recommendations.
     """
 
     return Task(
         description=task_description,
         agent=agent,
-        expected_output="A JSON object identifying the best answer with reasoning.",
+        expected_output="A detailed analysis and recommendation for the best solution.",
         async_execution=async_execution,
     )

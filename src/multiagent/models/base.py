@@ -26,7 +26,18 @@ class AnswerScore(BaseModel):
     answer_id: str
     criteria_scores: Dict[str, float]  # criterion_name -> score
     total_score: float
-    reasoning: str
+    reasoning: Dict[str, str] | str  # Allow either structured feedback or plain string
+
+    @property
+    def formatted_reasoning(self) -> str:
+        """Format the reasoning into a readable string."""
+        if isinstance(self.reasoning, dict):
+            # Convert structured feedback into readable format
+            return "\n".join(f"{k}: {v}" for k, v in self.reasoning.items())
+        return self.reasoning
+
+    def __str__(self) -> str:
+        return self.formatted_reasoning
 
     @classmethod
     def calculate_total_score(
@@ -46,6 +57,112 @@ class Evaluation(BaseModel):
     scores: List[AnswerScore]
     evaluator_id: str
     question: str
+
+    @classmethod
+    def from_dict(cls, data: dict, evaluator_id: str, question: str = "") -> "Evaluation":
+        """
+        Create an Evaluation object from a dictionary representing a judge's output.
+
+        Args:
+            data: Dictionary containing criteria and scores from judge
+            evaluator_id: ID of the evaluator agent
+            question: The original question being evaluated
+
+        Returns:
+            An Evaluation object
+
+        Raises:
+            ValueError: If the data is malformed or missing required fields
+        """
+        try:
+            # Extract criteria from the data
+            if "criteria" not in data:
+                raise ValueError("Missing 'criteria' field in evaluation data")
+
+            criteria = []
+            for criterion_data in data.get("criteria", []):
+                if not isinstance(criterion_data, dict):
+                    raise ValueError(f"Invalid criterion data format: {criterion_data}")
+                if "name" not in criterion_data:
+                    raise ValueError(f"Missing 'name' field in criterion: {criterion_data}")
+
+                criteria.append(
+                    EvaluationCriterion(
+                        name=criterion_data["name"],
+                        description=criterion_data.get("description", ""),
+                        weight=criterion_data.get("weight", 1.0),
+                    )
+                )
+
+            # Create a weights dictionary for total score calculation
+            weights = {c.name: c.weight for c in criteria}
+
+            # Extract scores from the data
+            if "scores" not in data:
+                raise ValueError("Missing 'scores' field in evaluation data")
+
+            scores = []
+            for score_data in data.get("scores", []):
+                if not isinstance(score_data, dict):
+                    raise ValueError(f"Invalid score data format: {score_data}")
+                if "answer_id" not in score_data:
+                    raise ValueError(f"Missing 'answer_id' field in score: {score_data}")
+
+                # Get criteria scores, handling different possible formats
+                if "criteria_scores" in score_data:
+                    criteria_scores = score_data["criteria_scores"]
+                    if not isinstance(criteria_scores, dict):
+                        raise ValueError(f"Invalid criteria_scores format: {criteria_scores}")
+                else:
+                    # Try to construct criteria scores from individual criterion fields
+                    criteria_scores = {}
+                    for criterion in criteria:
+                        if criterion.name not in score_data:
+                            raise ValueError(
+                                f"Missing score for criterion '{criterion.name}' in: {score_data}"
+                            )
+                        criteria_scores[criterion.name] = score_data.get(criterion.name, 0)
+
+                # Get or calculate total score
+                if "total_score" in score_data:
+                    total_score = score_data["total_score"]
+                elif "weighted_total" in score_data:
+                    total_score = score_data["weighted_total"]
+                else:
+                    total_score = AnswerScore.calculate_total_score(criteria_scores, weights)
+
+                # Extract and validate reasoning
+                reasoning = score_data.get("reasoning", "")
+                if not isinstance(reasoning, str):
+                    if isinstance(reasoning, dict):
+                        # Try to convert dict to string if possible
+                        try:
+                            import json
+
+                            reasoning = json.dumps(reasoning)
+                        except Exception as e:
+                            raise ValueError(
+                                f"Invalid reasoning format (dict conversion failed): {reasoning}"
+                            )
+                    else:
+                        raise ValueError(f"Invalid reasoning format (must be string): {reasoning}")
+
+                scores.append(
+                    AnswerScore(
+                        answer_id=score_data["answer_id"],
+                        criteria_scores=criteria_scores,
+                        total_score=total_score,
+                        reasoning=reasoning,
+                    )
+                )
+
+            return cls(
+                criteria=criteria, scores=scores, evaluator_id=evaluator_id, question=question
+            )
+
+        except Exception as e:
+            # Add context to the error message
+            raise ValueError(f"Error processing evaluation data: {str(e)}\nRaw data: {data}") from e
 
     def get_best_answers(self, top_n: int = 2, threshold: float = 0.1) -> List[str]:
         """
@@ -83,10 +200,10 @@ class Evaluation(BaseModel):
 class ImprovedAnswer(BaseModel):
     """Model representing an improved answer."""
 
-    original_answer_id: str
     content: str
-    agent_id: str
-    improvements: str
+    original_agent_id: str
+    improver_agent_id: Optional[str] = None
+    improvements: str = "No improvements specified"
 
     def __str__(self) -> str:
         return self.content

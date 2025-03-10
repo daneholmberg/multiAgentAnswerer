@@ -17,13 +17,14 @@ AVAILABLE_MODELS = {
 }
 
 
-def checkbox_menu(stdscr, items: List[Dict]) -> List[Dict]:
+def checkbox_menu(stdscr, items: List[Dict], single_selection: bool = False) -> List[Dict]:
     """
     Display an interactive checkbox menu using curses.
 
     Args:
         stdscr: curses window object
         items: List of items with 'id', 'label', and 'checked' keys
+        single_selection: If True, only one item can be selected at a time
 
     Returns:
         Updated list of items with their checked status
@@ -37,6 +38,7 @@ def checkbox_menu(stdscr, items: List[Dict]) -> List[Dict]:
 
         # Print instructions
         title = "Model Selection Menu"
+
         instructions = [
             "Use ↑/↓ arrow keys to navigate",
             "Press SPACE to toggle selection",
@@ -44,6 +46,16 @@ def checkbox_menu(stdscr, items: List[Dict]) -> List[Dict]:
             "Press Q to quit and use all models",
             "",  # Empty line for spacing
         ]
+
+        if single_selection:
+            title = "Final Judge Selection Menu"
+            instructions = [
+                "Use ↑/↓ arrow keys to navigate",
+                "Press SPACE to select (only one model can be selected)",
+                "Press ENTER to confirm",
+                "Press Q to quit",
+                "",  # Empty line for spacing
+            ]
 
         # Center the title
         start_x = max(0, (w - len(title)) // 2)
@@ -82,7 +94,14 @@ def checkbox_menu(stdscr, items: List[Dict]) -> List[Dict]:
         elif key == curses.KEY_DOWN and current_row < len(items) - 1:
             current_row += 1
         elif key == ord(" "):  # Space to toggle
-            items[current_row]["checked"] = not items[current_row]["checked"]
+            if single_selection:
+                # Uncheck all items first
+                for item in items:
+                    item["checked"] = False
+                # Then check the current item
+                items[current_row]["checked"] = True
+            else:
+                items[current_row]["checked"] = not items[current_row]["checked"]
         elif key == ord("\n"):  # Enter to confirm
             break
         elif key == ord("q"):  # Q to quit and use all
@@ -118,17 +137,19 @@ def get_model_selection(use_all_models: bool = False) -> Set[str]:
         updated_checkboxes = curses.wrapper(checkbox_menu, checkboxes)
 
         if updated_checkboxes is None:  # User quit
-            console.print("[yellow]Selection cancelled. Using all models by default.[/yellow]")
-            return set(AVAILABLE_MODELS.keys())
+            console.print("[yellow]Selection cancelled. Please select at least one model.[/yellow]")
+            # Re-run the selection instead of using all models
+            return get_model_selection(use_all_models=False)
 
         # Get selected models
         selected_models = {item["id"] for item in updated_checkboxes if item["checked"]}
 
         if not selected_models:
             console.print(
-                "[bold yellow]No models selected. Using all models by default.[/bold yellow]"
+                "[bold yellow]No models selected. Please select at least one model.[/bold yellow]"
             )
-            return set(AVAILABLE_MODELS.keys())
+            # Re-run the selection instead of using all models
+            return get_model_selection(use_all_models=False)
 
         console.print(
             f"[bold green]Selected models: {', '.join(AVAILABLE_MODELS[model_id] for model_id in selected_models)}[/bold green]"
@@ -136,8 +157,57 @@ def get_model_selection(use_all_models: bool = False) -> Set[str]:
         return selected_models
 
     except Exception as e:
-        console.print(f"[red]Error during model selection: {e}. Using all models.[/red]")
-        return set(AVAILABLE_MODELS.keys())
+        console.print(f"[red]Error during model selection: {e}. Please try again.[/red]")
+        # Retry instead of using all models
+        return get_model_selection(use_all_models=False)
+
+
+def get_final_judge_selection() -> str:
+    """
+    Get the user's selection for a single final judge model using a curses-based interface.
+
+    Returns:
+        A single model ID to use as the final judge
+    """
+    console = Console()
+
+    # Initialize checkbox data with all options unchecked
+    checkboxes = [
+        {"id": model_id, "label": model_name, "checked": False}
+        for model_id, model_name in AVAILABLE_MODELS.items()
+    ]
+
+    try:
+        # Run the curses interface with single selection mode
+        updated_checkboxes = curses.wrapper(checkbox_menu, checkboxes, single_selection=True)
+
+        if updated_checkboxes is None:  # User quit
+            console.print(
+                "[yellow]Selection cancelled. Please select one model as final judge.[/yellow]"
+            )
+            # Re-run the selection
+            return get_final_judge_selection()
+
+        # Get selected model
+        selected_models = [item["id"] for item in updated_checkboxes if item["checked"]]
+
+        if not selected_models:
+            console.print(
+                "[bold yellow]No model selected. Please select one model as final judge.[/bold yellow]"
+            )
+            # Re-run the selection
+            return get_final_judge_selection()
+
+        selected_model = selected_models[0]  # There should be only one
+        console.print(
+            f"[bold green]Selected final judge: {AVAILABLE_MODELS[selected_model]}[/bold green]"
+        )
+        return selected_model
+
+    except Exception as e:
+        console.print(f"[red]Error during final judge selection: {e}. Please try again.[/red]")
+        # Retry
+        return get_final_judge_selection()
 
 
 def filter_agents(agents: Dict, selected_models: Set[str]) -> Dict:
